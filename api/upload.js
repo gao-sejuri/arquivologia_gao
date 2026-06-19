@@ -4,6 +4,7 @@ const { autenticar } = require('../lib/auth');
 const { normalizarCpf, normalizarMatricula } = require('../lib/zpl');
 const { parseDataBRParaISO, formatarDataBR } = require('../lib/data');
 const { registrarLog } = require('../lib/logs');
+const { fetchAllEtiquetas } = require('../lib/fetchAll');
 
 // Casa a planilha nova com o que já existe no Supabase (por CPF ou Matrícula) e preserva
 // quem já estava "Na fila"/"Impresso" — evita resetar o histórico de impressão a cada upload.
@@ -32,10 +33,9 @@ module.exports = async function handler(req, res) {
         const aba = workbook.Sheets[workbook.SheetNames[0]];
         const rawData = xlsx.utils.sheet_to_json(aba, { raw: false });
 
-        const { data: existentes, error: erroBusca } = await supabase
-            .from('etiquetas')
-            .select('id, nome, matricula, cpf, status');
-        if (erroBusca) return res.status(500).json({ error: erroBusca.message });
+        let existentes;
+        try { existentes = await fetchAllEtiquetas('id, nome, matricula, cpf, status'); }
+        catch (e) { return res.status(500).json({ error: e.message }); }
 
         const porCpf = new Map();
         const porMatricula = new Map();
@@ -80,11 +80,9 @@ module.exports = async function handler(req, res) {
             if (erroInsert) return res.status(500).json({ error: erroInsert.message });
         }
 
-        const { data: todos, error: erroFinal } = await supabase
-            .from('etiquetas')
-            .select('id, nome, matricula, cpf, data_admissao, status')
-            .order('id', { ascending: true });
-        if (erroFinal) return res.status(500).json({ error: erroFinal.message });
+        let todos;
+        try { todos = await fetchAllEtiquetas(); }
+        catch (e) { return res.status(500).json({ error: e.message }); }
 
         await registrarLog(req, user.id, user.email, 'upload_planilha', {
             inseridos: paraInserir.length,

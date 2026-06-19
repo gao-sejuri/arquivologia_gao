@@ -2,6 +2,7 @@ const { supabase } = require('../lib/supabase');
 const { autenticar } = require('../lib/auth');
 const { formatarDataBR } = require('../lib/data');
 const { registrarLog } = require('../lib/logs');
+const { fetchAllEtiquetas } = require('../lib/fetchAll');
 
 module.exports = async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido' });
@@ -20,11 +21,9 @@ module.exports = async function handler(req, res) {
         .in('id', ids);
     if (erroUpdate) return res.status(500).json({ error: erroUpdate.message });
 
-    const { data, error } = await supabase
-        .from('etiquetas')
-        .select('id, nome, matricula, cpf, data_admissao, status')
-        .order('id', { ascending: true });
-    if (error) return res.status(500).json({ error: error.message });
+    let data;
+    try { data = await fetchAllEtiquetas(); }
+    catch (e) { return res.status(500).json({ error: e.message }); }
 
     await registrarLog(req, user.id, user.email, 'marcar_pendente', { ids });
 
