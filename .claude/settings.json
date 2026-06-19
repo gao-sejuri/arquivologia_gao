@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "$data = $input | ConvertFrom-Json; $f = if ($data.tool_input.file_path) { $data.tool_input.file_path } else { '' }; if ($f -match 'api[/\\\\]|auth|token|upload|cpf|senha|password') { Write-Output '{\"systemMessage\": \"SEGURANCA: Arquivo sensivel modificado. Rode /security-review antes de fechar a tarefa.\"}' }",
+            "timeout": 10,
+            "statusMessage": "Verificando seguranca do arquivo..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "Write-Output '{\"systemMessage\": \"LEMBRETE DE MEMORIA: Atualize memory/ com as decisoes e aprendizados desta sessao antes de encerrar.\"}'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

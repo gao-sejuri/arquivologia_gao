@@ -1,0 +1,14 @@
+{
+  "name": "etiquetas-gao",
+  "version": "1.0.0",
+  "scripts": {
+    "agente": "node agente-impressora.js",
+    "start": "node agente-impressora.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "dotenv": "^16.4.5",
+    "xlsx": "^0.18.5"
+  }
+}
+

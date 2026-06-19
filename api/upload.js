@@ -1,0 +1,103 @@
+const xlsx = require('xlsx');
+const { supabase } = require('../lib/supabase');
+const { autenticar } = require('../lib/auth');
+const { normalizarCpf, normalizarMatricula } = require('../lib/zpl');
+const { parseDataBRParaISO, formatarDataBR } = require('../lib/data');
+
+// Casa a planilha nova com o que já existe no Supabase (por CPF ou Matrícula) e preserva
+// quem já estava "Na fila"/"Impresso" — evita resetar o histórico de impressão a cada upload.
+module.exports = async function handler(req, res) {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido' });
+
+    const user = await autenticar(req);
+    if (!user) return res.status(401).json({ error: 'Não autenticado.' });
+
+    try {
+        const { conteudoBase64 } = req.body || {};
+        if (!conteudoBase64) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+
+        const buffer = Buffer.from(conteudoBase64, 'base64');
+
+        // Valida tamanho (max 5MB)
+        if (buffer.length > 5 * 1024 * 1024) {
+            return res.status(400).json({ error: 'Arquivo muito grande. Limite de 5MB.' });
+        }
+
+        // Valida magic bytes do XLSX (ZIP: PK\x03\x04 = 50 4B 03 04)
+        if (buffer[0] !== 0x50 || buffer[1] !== 0x4B || buffer[2] !== 0x03 || buffer[3] !== 0x04) {
+            return res.status(400).json({ error: 'Arquivo invalido. Envie um arquivo .xlsx valido.' });
+        }
+        const workbook = xlsx.read(buffer, { type: 'buffer' });
+        const aba = workbook.Sheets[workbook.SheetNames[0]];
+        const rawData = xlsx.utils.sheet_to_json(aba, { raw: false });
+
+        const { data: existentes, error: erroBusca } = await supabase
+            .from('etiquetas')
+            .select('id, nome, matricula, cpf, status');
+        if (erroBusca) return res.status(500).json({ error: erroBusca.message });
+
+        const porCpf = new Map();
+        const porMatricula = new Map();
+        (existentes || []).forEach(item => {
+            const cpfKey = normalizarCpf(item.cpf);
+            const matriculaKey = normalizarMatricula(item.matricula);
+            if (cpfKey) porCpf.set(cpfKey, item);
+            if (matriculaKey) porMatricula.set(matriculaKey, item);
+        });
+
+        const jaImpressos = [];
+        const paraInserir = [];
+        const paraAtualizar = [];
+
+        rawData.forEach(row => {
+            const nome = row['Nome'] || '';
+            const matricula = row['Matrícula'] || '';
+            const cpf = row['CPF'] || '';
+            const dataAdmissaoIso = parseDataBRParaISO((row['Data de admissão cargo atual'] || '').split(' ')[0]);
+
+            const existente = porCpf.get(normalizarCpf(cpf)) || porMatricula.get(normalizarMatricula(matricula));
+            const statusFinal = (existente && existente.status !== 'Pendente') ? existente.status : 'Pendente';
+
+            if (existente && existente.status !== 'Pendente') {
+                jaImpressos.push({ id: existente.id, nome, matricula });
+            }
+
+            const registro = { nome, matricula, cpf, data_admissao: dataAdmissaoIso, status: statusFinal };
+            if (existente) {
+                paraAtualizar.push({ id: existente.id, ...registro });
+            } else {
+                paraInserir.push(registro);
+            }
+        });
+
+        if (paraAtualizar.length > 0) {
+            const { error: erroUpdate } = await supabase.from('etiquetas').upsert(paraAtualizar);
+            if (erroUpdate) return res.status(500).json({ error: erroUpdate.message });
+        }
+        if (paraInserir.length > 0) {
+            const { error: erroInsert } = await supabase.from('etiquetas').insert(paraInserir);
+            if (erroInsert) return res.status(500).json({ error: erroInsert.message });
+        }
+
+        const { data: todos, error: erroFinal } = await supabase
+            .from('etiquetas')
+            .select('id, nome, matricula, cpf, data_admissao, status')
+            .order('id', { ascending: true });
+        if (erroFinal) return res.status(500).json({ error: erroFinal.message });
+
+        res.json({
+            success: true,
+            dados: todos.map(item => ({
+                id: item.id,
+                nome: item.nome,
+                matricula: item.matricula,
+                cpf: item.cpf,
+                dataAdmissao: formatarDataBR(item.data_admissao),
+                status: item.status
+            })),
+            jaImpressos
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Erro ao ler Excel: ' + error.message });
+    }
+};
