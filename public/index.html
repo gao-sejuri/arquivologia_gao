@@ -546,7 +546,61 @@
             );
         }
 
-        function NavBar({ perfil, secao, setSecao, onLogout }) {
+        function ModalTrocarSenha({ token, onFechar }) {
+            const [novaSenha, setNovaSenha] = useState('');
+            const [confirmar, setConfirmar] = useState('');
+            const [erro, setErro] = useState('');
+            const [sucesso, setSucesso] = useState(false);
+            const [salvando, setSalvando] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (novaSenha.length < 8) { setErro('Mínimo 8 caracteres.'); return; }
+                if (novaSenha !== confirmar) { setErro('As senhas não coincidem.'); return; }
+                setSalvando(true); setErro('');
+                try {
+                    const res = await fetch('/api/perfil/trocar-senha', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ novaSenha })
+                    });
+                    const json = await res.json();
+                    if (json.success) { setSucesso(true); setTimeout(onFechar, 1800); }
+                    else setErro(json.error || 'Erro ao trocar senha.');
+                } catch { setErro('Erro ao conectar com o servidor.'); }
+                setSalvando(false);
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={e => e.target === e.currentTarget && onFechar()}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+                        <h2 className="text-lg font-bold text-gray-800 mb-4">Trocar Senha</h2>
+                        {sucesso ? (
+                            <div className="text-center py-6">
+                                <div className="text-green-500 text-4xl mb-3">✓</div>
+                                <p className="text-green-700 font-semibold">Senha alterada com sucesso!</p>
+                            </div>
+                        ) : (
+                            <form onSubmit={handleSubmit}>
+                                {erro && <div className="bg-red-50 text-red-600 text-sm p-3 rounded mb-4">{erro}</div>}
+                                <label className="block text-sm font-medium text-gray-600 mb-1">Nova senha</label>
+                                <input type="password" required minLength={8} autoFocus className="border p-2 rounded w-full mb-3 focus:outline-none focus:ring-2 focus:ring-blue-400" value={novaSenha} onChange={e => setNovaSenha(e.target.value)} />
+                                <label className="block text-sm font-medium text-gray-600 mb-1">Confirmar nova senha</label>
+                                <input type="password" required minLength={8} className="border p-2 rounded w-full mb-5 focus:outline-none focus:ring-2 focus:ring-blue-400" value={confirmar} onChange={e => setConfirmar(e.target.value)} />
+                                <div className="flex gap-2 justify-end">
+                                    <button type="button" onClick={onFechar} className="px-4 py-2 rounded text-sm text-gray-600 hover:bg-gray-100 transition font-medium">Cancelar</button>
+                                    <button type="submit" disabled={salvando} className="px-4 py-2 rounded text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold transition disabled:opacity-50">
+                                        {salvando ? 'Salvando...' : 'Salvar'}
+                                    </button>
+                                </div>
+                            </form>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function NavBar({ perfil, secao, setSecao, onLogout, onTrocarSenha }) {
             return (
                 <div className="bg-white border-b shadow-sm px-6 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-6">
@@ -561,6 +615,7 @@
                     </div>
                     <div className="flex items-center gap-3">
                         <span className="text-xs font-semibold px-2 py-1 rounded bg-purple-100 text-purple-700">{perfil.role === 'admin' ? '★ Admin' : 'Usuário'}</span>
+                        <button onClick={onTrocarSenha} className="text-sm text-gray-400 hover:text-blue-600 transition font-medium">Trocar Senha</button>
                         <button onClick={onLogout} className="text-sm text-gray-400 hover:text-red-600 transition font-medium">Sair</button>
                     </div>
                 </div>
@@ -750,6 +805,7 @@
             const [token, setToken] = useState(() => sessionStorage.getItem('token') || null);
             const [perfil, setPerfil] = useState(null);
             const [secao, setSecao] = useState('dashboard');
+            const [mostrarTrocarSenha, setMostrarTrocarSenha] = useState(false);
 
             const handleLogin = (novoToken) => {
                 sessionStorage.setItem('token', novoToken);
@@ -782,7 +838,8 @@
 
             return (
                 <div className="min-h-screen bg-gray-100">
-                    <NavBar perfil={perfil} secao={secao} setSecao={setSecao} onLogout={handleLogout} />
+                    <NavBar perfil={perfil} secao={secao} setSecao={setSecao} onLogout={handleLogout} onTrocarSenha={() => setMostrarTrocarSenha(true)} />
+                    {mostrarTrocarSenha && <ModalTrocarSenha token={token} onFechar={() => setMostrarTrocarSenha(false)} />}
                     {secao === 'dashboard' && <Dashboard token={token} onLogout={handleLogout} />}
                     {secao === 'usuarios' && perfil.role === 'admin' && <GerenciarUsuarios token={token} />}
                     {secao === 'logs' && perfil.role === 'admin' && <Logs token={token} />}
