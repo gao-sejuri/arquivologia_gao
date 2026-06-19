@@ -3,6 +3,7 @@ const { supabase } = require('../lib/supabase');
 const { autenticar } = require('../lib/auth');
 const { normalizarCpf, normalizarMatricula } = require('../lib/zpl');
 const { parseDataBRParaISO, formatarDataBR } = require('../lib/data');
+const { registrarLog } = require('../lib/logs');
 
 // Casa a planilha nova com o que já existe no Supabase (por CPF ou Matrícula) e preserva
 // quem já estava "Na fila"/"Impresso" — evita resetar o histórico de impressão a cada upload.
@@ -84,6 +85,11 @@ module.exports = async function handler(req, res) {
             .select('id, nome, matricula, cpf, data_admissao, status')
             .order('id', { ascending: true });
         if (erroFinal) return res.status(500).json({ error: erroFinal.message });
+
+        await registrarLog(req, user.id, user.email, 'upload_planilha', {
+            inseridos: paraInserir.length,
+            atualizados: paraAtualizar.length
+        });
 
         res.json({
             success: true,

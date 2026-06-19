@@ -1,4 +1,5 @@
--- Cole este script uma vez no SQL Editor do Supabase (Database > SQL Editor > New query).
+-- Cole este script inteiro no SQL Editor do Supabase (Database > SQL Editor > New query).
+-- Pode rodar múltiplas vezes sem erros (usa IF NOT EXISTS e ON CONFLICT DO NOTHING).
 
 create table if not exists etiquetas (
   id bigint generated always as identity primary key,
@@ -21,5 +22,31 @@ create table if not exists fila_impressao (
 
 alter table etiquetas enable row level security;
 alter table fila_impressao enable row level security;
--- Sem policies: só a service_role key (usada só no backend /api e no agente local) acessa essas tabelas.
--- O navegador nunca recebe a service_role key, só fala com as funções /api.
+
+-- Perfis de usuários: role e flag de primeiro acesso
+create table if not exists profiles (
+  id uuid references auth.users(id) on delete cascade primary key,
+  role text not null default 'user', -- 'admin' | 'user'
+  force_password_change boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table profiles enable row level security;
+
+-- Logs do sistema: toda ação registrada para auditoria
+create table if not exists logs (
+  id bigint generated always as identity primary key,
+  user_id uuid references auth.users(id) on delete set null,
+  user_email text,
+  acao text not null,
+  detalhes jsonb default '{}'::jsonb,
+  ip text default '',
+  criado_em timestamptz not null default now()
+);
+alter table logs enable row level security;
+
+-- Torna gao@acaps.sc.gov.br super admin com acesso imediato (sem troca de senha forçada)
+insert into profiles (id, role, force_password_change)
+values ('da7753a1-7205-40d2-ab52-c4f4311565f9', 'admin', false)
+on conflict (id) do update set role = 'admin', force_password_change = false;
+
+-- Sem RLS policies nas 3 tabelas: só o backend (service_role) acessa.

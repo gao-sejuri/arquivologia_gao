@@ -1,5 +1,6 @@
 const { supabase } = require('../lib/supabase');
 const { autenticar } = require('../lib/auth');
+const { registrarLog } = require('../lib/logs');
 
 // Não imprime direto (a Vercel não alcança a impressora na rede local) — só enfileira.
 // O agente local (agente-impressora.js) é quem observa fila_impressao e imprime de fato.
@@ -26,6 +27,8 @@ module.exports = async function handler(req, res) {
     const filas = idsParaImprimir.map(id => ({ etiqueta_id: id, status: 'pendente' }));
     const { error: erroFila } = await supabase.from('fila_impressao').insert(filas);
     if (erroFila) return res.status(500).json({ error: erroFila.message });
+
+    await registrarLog(req, user.id, user.email, 'impressao_lote', { quantidade: idsParaImprimir.length, ids: idsParaImprimir });
 
     res.json({ success: true, mensagem: `${idsParaImprimir.length} etiqueta(s) enviada(s) para a fila de impressão.` });
 };
