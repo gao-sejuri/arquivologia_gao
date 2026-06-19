@@ -14,8 +14,8 @@ module.exports = async function handler(req, res) {
     if (!Array.isArray(idsParaImprimir) || idsParaImprimir.length === 0) {
         return res.status(400).json({ error: 'Selecione ao menos um registro.' });
     }
-    if (idsParaImprimir.length > 50) {
-        return res.status(400).json({ error: 'Selecione no máximo 50 etiquetas por lote para não sobrecarregar a memória da impressora.' });
+    if (idsParaImprimir.length > 20) {
+        return res.status(400).json({ error: 'Selecione no máximo 20 etiquetas por lote para não sobrecarregar a memória da impressora.' });
     }
 
     const { error: erroUpdate } = await supabase

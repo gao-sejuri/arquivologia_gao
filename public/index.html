@@ -329,7 +329,7 @@
             // Envio para a Impressora
             const handleImprimir = async () => {
                 if (selecionados.length === 0) return alert('Selecione ao menos um registro.');
-                if (selecionados.length > 50) return alert('Selecione no máximo 50 etiquetas por lote para não sobrecarregar a memória da impressora.');
+                if (selecionados.length > 20) return alert('Selecione no máximo 20 etiquetas por lote para não sobrecarregar a memória da impressora.');
 
                 setLoading(true);
                 try {
@@ -593,7 +593,7 @@
                         <button 
                             onClick={handleImprimir}
                             disabled={loading || selecionados.length === 0}
-                            className={`px-8 py-3 rounded text-white font-bold shadow transition ${selecionados.length > 0 && selecionados.length <= 50 ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed'}`}
+                            className={`px-8 py-3 rounded text-white font-bold shadow transition ${selecionados.length > 0 && selecionados.length <= 20 ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed'}`}
                         >
                             {loading ? 'Processando...' : `🖨️ IMPRIMIR LOTE SELECIONADO`}
                         </button>

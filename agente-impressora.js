@@ -28,7 +28,7 @@ const processarFila = async () => {
         .from('fila_impressao')
         .select('id, etiqueta_id')
         .eq('status', 'pendente')
-        .limit(50);
+        .limit(20);
 
     if (error) {
         console.error('Erro ao buscar fila:', error.message);
