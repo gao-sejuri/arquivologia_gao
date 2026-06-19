@@ -24,6 +24,9 @@ module.exports = async function handler(req, res) {
         .in('id', idsParaImprimir);
     if (erroUpdate) return res.status(500).json({ error: erroUpdate.message });
 
+    // Remove entradas anteriores pendentes dos mesmos IDs para evitar reimpressão acumulada
+    await supabase.from('fila_impressao').delete().in('etiqueta_id', idsParaImprimir).eq('status', 'pendente');
+
     const filas = idsParaImprimir.map(id => ({ etiqueta_id: id, status: 'pendente' }));
     const { error: erroFila } = await supabase.from('fila_impressao').insert(filas);
     if (erroFila) return res.status(500).json({ error: erroFila.message });
