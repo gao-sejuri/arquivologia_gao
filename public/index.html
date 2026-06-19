@@ -163,7 +163,7 @@
             useEffect(() => {
                 chamarApi('/api/dados')
                     .then(res => res.json())
-                    .then(data => setDados(data || []))
+                    .then(data => setDados(Array.isArray(data) ? data : []))
                     .catch(() => {});
             }, []);
 
