@@ -137,9 +137,11 @@
             );
         }
 
-        function Dashboard({ token, onLogout }) {
+        function Dashboard({ token, onLogout, perfil }) {
             const [dados, setDados] = useState([]);
             const [selecionados, setSelecionados] = useState([]);
+            const [confirmandoReset, setConfirmandoReset] = useState(false);
+            const [resetando, setResetando] = useState(false);
             const [busca, setBusca] = useState('');
             const [filtroStatus, setFiltroStatus] = useState('Todos');
             const [filtroAnos, setFiltroAnos] = useState([]);
@@ -352,6 +354,20 @@
                 setLoading(false);
             };
 
+            const handleReset = async () => {
+                setResetando(true);
+                try {
+                    const res = await fetch('/api/resetar-impressoes', {
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    const json = await res.json();
+                    if (json.success) { setDados(json.dados); setSelecionados([]); }
+                } catch {}
+                setResetando(false);
+                setConfirmandoReset(false);
+            };
+
             // Contadores
             const totalPendentes = dados.filter(d => d.status === 'Pendente').length;
             const totalNaFila = dados.filter(d => d.status === 'Na fila').length;
@@ -365,15 +381,26 @@
                             <h1 className="text-2xl font-bold text-gray-800">Painel de Impressão de Identificação</h1>
                             <p className="text-gray-500 text-sm mt-1">Zebra TLP/GC Series - Porta 9100</p>
                         </div>
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3">
+                            {perfil?.role === 'admin' && (
+                                confirmandoReset ? (
+                                    <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded px-3 py-1.5">
+                                        <span className="text-red-700 text-sm font-medium">Todos voltam a Pendente.</span>
+                                        <button onClick={() => setConfirmandoReset(false)} className="text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded hover:bg-gray-100">Cancelar</button>
+                                        <button onClick={handleReset} disabled={resetando} className="text-xs bg-red-600 hover:bg-red-700 text-white font-semibold px-3 py-1 rounded transition disabled:opacity-50">
+                                            {resetando ? 'Limpando...' : 'Confirmar'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button onClick={() => setConfirmandoReset(true)} className="text-sm text-gray-400 hover:text-red-600 transition font-medium border border-gray-200 px-3 py-2 rounded hover:border-red-300">
+                                        Limpar histórico
+                                    </button>
+                                )
+                            )}
                             <label className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded cursor-pointer font-medium transition">
                                 {loading ? 'Carregando...' : 'Carregar Planilha (.xlsx)'}
                                 <input type="file" accept=".xlsx" className="hidden" onChange={handleUpload} disabled={loading} />
                             </label>
-                            <button
-                                onClick={onLogout}
-                                className="text-sm font-medium text-gray-400 hover:text-red-600 transition"
-                            >Sair</button>
                         </div>
                     </div>
 
@@ -840,7 +867,7 @@
                 <div className="min-h-screen bg-gray-100">
                     <NavBar perfil={perfil} secao={secao} setSecao={setSecao} onLogout={handleLogout} onTrocarSenha={() => setMostrarTrocarSenha(true)} />
                     {mostrarTrocarSenha && <ModalTrocarSenha token={token} onFechar={() => setMostrarTrocarSenha(false)} />}
-                    {secao === 'dashboard' && <Dashboard token={token} onLogout={handleLogout} />}
+                    {secao === 'dashboard' && <Dashboard token={token} onLogout={handleLogout} perfil={perfil} />}
                     {secao === 'usuarios' && perfil.role === 'admin' && <GerenciarUsuarios token={token} />}
                     {secao === 'logs' && perfil.role === 'admin' && <Logs token={token} />}
                 </div>
