@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Impressão - Etiquetas</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
+    <link rel="shortcut icon" href="data:image/x-icon,">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans antialiased p-6">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        const ITENS_POR_PAGINA = 50;
+        const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+        const MESES = [
+            { valor: 1, nome: 'Janeiro' }, { valor: 2, nome: 'Fevereiro' }, { valor: 3, nome: 'Março' },
+            { valor: 4, nome: 'Abril' }, { valor: 5, nome: 'Maio' }, { valor: 6, nome: 'Junho' },
+            { valor: 7, nome: 'Julho' }, { valor: 8, nome: 'Agosto' }, { valor: 9, nome: 'Setembro' },
+            { valor: 10, nome: 'Outubro' }, { valor: 11, nome: 'Novembro' }, { valor: 12, nome: 'Dezembro' }
+        ];
+
+        // Aceita "DD/MM/AAAA" (padrão Excel BR) ou "AAAA-MM-DD" (ISO)
+        const parseAdmissao = (dataStr) => {
+            if (!dataStr) return { ano: null, mes: null };
+            const partes = dataStr.split(/[\/\-]/);
+            if (partes.length !== 3) return { ano: null, mes: null };
+            const [a, b, c] = partes;
+            const [diaStr, mesStr, anoStr] = a.length === 4 ? [c, b, a] : [a, b, c];
+            const mes = parseInt(mesStr, 10);
+            const ano = parseInt(anoStr, 10);
+            return { ano: isNaN(ano) ? null : ano, mes: isNaN(mes) ? null : mes };
+        };
+
+        function Paginacao({ paginaAtual, totalPaginas, onChange }) {
+            if (totalPaginas <= 1) return null;
+            const janela = 2;
+            const paginas = [];
+            for (let p = 1; p <= totalPaginas; p++) {
+                if (p === 1 || p === totalPaginas || (p >= paginaAtual - janela && p <= paginaAtual + janela)) {
+                    paginas.push(p);
+                } else if (paginas[paginas.length - 1] !== '...') {
+                    paginas.push('...');
+                }
+            }
+            return (
+                <div className="flex items-center gap-1">
+                    <button
+                        onClick={() => onChange(paginaAtual - 1)}
+                        disabled={paginaAtual === 1}
+                        className="px-3 py-1.5 rounded border bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                    >‹</button>
+                    {paginas.map((p, idx) => p === '...' ? (
+                        <span key={`dots-${idx}`} className="px-2 text-gray-400">…</span>
+                    ) : (
+                        <button
+                            key={p}
+                            onClick={() => onChange(p)}
+                            className={`px-3 py-1.5 rounded border text-sm font-medium ${p === paginaAtual ? 'bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-gray-50'}`}
+                        >{p}</button>
+                    ))}
+                    <button
+                        onClick={() => onChange(paginaAtual + 1)}
+                        disabled={paginaAtual === totalPaginas}
+                        className="px-3 py-1.5 rounded border bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                    >›</button>
+                </div>
+            );
+        }
+
+        function Login({ onLogin }) {
+            const [email, setEmail] = useState('');
+            const [senha, setSenha] = useState('');
+            const [erro, setErro] = useState('');
+            const [enviando, setEnviando] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setErro('');
+                setEnviando(true);
+                try {
+                    const res = await fetch('/api/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, senha })
+                    });
+                    const json = await res.json();
+                    if (json.success) {
+                        onLogin(json.token);
+                    } else {
+                        setErro(json.error || 'Não foi possível entrar.');
+                    }
+                } catch (error) {
+                    setErro('Erro ao conectar com o servidor.');
+                }
+                setEnviando(false);
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center">
+                    <form onSubmit={handleSubmit} className="bg-white p-8 rounded-lg shadow w-full max-w-sm">
+                        <h1 className="text-xl font-bold text-gray-800 mb-1">Painel de Impressão</h1>
+                        <p className="text-gray-500 text-sm mb-6">Entre com seu login para continuar.</p>
+                        {erro && <div className="bg-red-50 text-red-600 text-sm p-2 rounded mb-4">{erro}</div>}
+                        <label className="block text-sm font-medium text-gray-600 mb-1">E-mail</label>
+                        <input
+                            type="email"
+                            required
+                            autoFocus
+                            className="border p-2 rounded w-full mb-4"
+                            value={email}
+                            onChange={e => setEmail(e.target.value)}
+                        />
+                        <label className="block text-sm font-medium text-gray-600 mb-1">Senha</label>
+                        <input
+                            type="password"
+                            required
+                            className="border p-2 rounded w-full mb-6"
+                            value={senha}
+                            onChange={e => setSenha(e.target.value)}
+                        />
+                        <button
+                            type="submit"
+                            disabled={enviando}
+                            className="bg-blue-600 hover:bg-blue-700 text-white w-full py-2 rounded font-medium transition disabled:opacity-50"
+                        >
+                            {enviando ? 'Entrando...' : 'Entrar'}
+                        </button>
+                    </form>
+                </div>
+            );
+        }
+
+        function Dashboard({ token, onLogout }) {
+            const [dados, setDados] = useState([]);
+            const [selecionados, setSelecionados] = useState([]);
+            const [busca, setBusca] = useState('');
+            const [filtroStatus, setFiltroStatus] = useState('Todos');
+            const [filtroAnos, setFiltroAnos] = useState([]);
+            const [filtroMes, setFiltroMes] = useState('Todos');
+            const [filtroLetra, setFiltroLetra] = useState('Todos');
+            const [paginaAtual, setPaginaAtual] = useState(1);
+            const [loading, setLoading] = useState(false);
+
+            // Toda chamada à nossa API leva o token do Supabase Auth; em caso de 401, força novo login
+            const chamarApi = async (url, opcoes = {}) => {
+                const res = await fetch(url, {
+                    ...opcoes,
+                    headers: { ...(opcoes.headers || {}), Authorization: `Bearer ${token}` }
+                });
+                if (res.status === 401) {
+                    onLogout();
+                    throw new Error('Sessão expirada. Faça login novamente.');
+                }
+                return res;
+            };
+
+            // Carrega os dados salvos no Supabase ao abrir o programa
+            useEffect(() => {
+                chamarApi('/api/dados')
+                    .then(res => res.json())
+                    .then(data => setDados(Array.isArray(data) ? data : []))
+                    .catch(() => {});
+            }, []);
+
+            // Upload de nova planilha
+            const handleUpload = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                setLoading(true);
+                try {
+                    const conteudoBase64 = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result.split(',')[1]);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(file);
+                    });
+
+                    const res = await chamarApi('/api/upload', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ conteudoBase64 })
+                    });
+                    const json = await res.json();
+                    if (json.success) {
+                        setDados(json.dados);
+                        setSelecionados([]);
+                        limparFiltros();
+
+                        // A planilha pode trazer gente que já tinha sido impressa (ou estava na fila) antes, casado por CPF/Matrícula
+                        if (json.jaImpressos && json.jaImpressos.length > 0) {
+                            const nomes = json.jaImpressos.map(p => p.nome).join('\n- ');
+                            const reimprimir = window.confirm(
+                                `${json.jaImpressos.length} pessoa(s) desta planilha já constavam como IMPRESSAS ou NA FILA anteriormente:\n\n- ${nomes}\n\nDeseja marcá-las como Pendente novamente para reimprimir as etiquetas?`
+                            );
+                            if (reimprimir) {
+                                const idsParaReimprimir = json.jaImpressos.map(p => p.id);
+                                const res2 = await chamarApi('/api/marcar-pendente', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ ids: idsParaReimprimir })
+                                });
+                                const json2 = await res2.json();
+                                if (json2.success) setDados(json2.dados);
+                            }
+                        }
+
+                        alert('Planilha carregada e cofre atualizado com sucesso!');
+                    } else {
+                        alert(json.error);
+                    }
+                } catch (error) {
+                    alert('Erro ao enviar arquivo.');
+                }
+                setLoading(false);
+                e.target.value = null; // Reseta o input
+            };
+
+            // Filtro-base: texto, status e mês (dimensões compartilhadas pelos recortes de Ano e Letra abaixo)
+            const dadosBase = useMemo(() => {
+                return dados.filter(item => {
+                    const matchBusca = (item.nome + item.matricula + item.cpf).toLowerCase().includes(busca.toLowerCase());
+                    const matchStatus = filtroStatus === 'Todos' || item.status === filtroStatus;
+                    const { mes } = parseAdmissao(item.dataAdmissao);
+                    const matchMes = filtroMes === 'Todos' || mes === Number(filtroMes);
+                    return matchBusca && matchStatus && matchMes;
+                });
+            }, [dados, busca, filtroStatus, filtroMes]);
+
+            // Anos disponíveis = dadosBase já considerando a Letra ativa (exclui só o próprio filtro de Ano)
+            const anosDisponiveis = useMemo(() => {
+                const anos = new Set();
+                dadosBase.forEach(item => {
+                    if (filtroLetra !== 'Todos' && !(item.nome || '').trim().toUpperCase().startsWith(filtroLetra)) return;
+                    const { ano } = parseAdmissao(item.dataAdmissao);
+                    if (ano) anos.add(ano);
+                });
+                return Array.from(anos).sort((a, b) => b - a);
+            }, [dadosBase, filtroLetra]);
+
+            // dadosBase + filtro de Ano (um ou vários anos podem estar selecionados)
+            const dadosSemLetra = useMemo(() => {
+                if (filtroAnos.length === 0) return dadosBase;
+                return dadosBase.filter(item => {
+                    const { ano } = parseAdmissao(item.dataAdmissao);
+                    return filtroAnos.includes(ano);
+                });
+            }, [dadosBase, filtroAnos]);
+
+            // Letras disponíveis = dadosSemLetra (já tem busca+status+mês+ano, falta só a Letra)
+            const letrasDisponiveis = useMemo(() => {
+                const letras = new Set();
+                dadosSemLetra.forEach(item => {
+                    const inicial = (item.nome || '').trim().charAt(0).toUpperCase();
+                    if (inicial) letras.add(inicial);
+                });
+                return letras;
+            }, [dadosSemLetra]);
+
+            // Filtro final (acrescenta a letra inicial do nome)
+            const dadosFiltrados = useMemo(() => {
+                if (filtroLetra === 'Todos') return dadosSemLetra;
+                return dadosSemLetra.filter(item => (item.nome || '').trim().toUpperCase().startsWith(filtroLetra));
+            }, [dadosSemLetra, filtroLetra]);
+
+            const toggleAno = (ano) => {
+                setFiltroAnos(prev => prev.includes(ano) ? prev.filter(a => a !== ano) : [...prev, ano]);
+            };
+
+            const filtrosAtivos = busca !== '' || filtroStatus !== 'Todos' || filtroAnos.length > 0 || filtroMes !== 'Todos' || filtroLetra !== 'Todos';
+
+            const limparFiltros = () => {
+                setBusca('');
+                setFiltroStatus('Todos');
+                setFiltroAnos([]);
+                setFiltroMes('Todos');
+                setFiltroLetra('Todos');
+            };
+
+            // Sempre que um filtro muda, volta para a primeira página
+            useEffect(() => {
+                setPaginaAtual(1);
+            }, [busca, filtroStatus, filtroAnos, filtroMes, filtroLetra]);
+
+            // Paginação (50 por página)
+            const totalPaginas = Math.max(1, Math.ceil(dadosFiltrados.length / ITENS_POR_PAGINA));
+
+            useEffect(() => {
+                if (paginaAtual > totalPaginas) setPaginaAtual(totalPaginas);
+            }, [totalPaginas, paginaAtual]);
+
+            const dadosPaginados = useMemo(() => {
+                const inicio = (paginaAtual - 1) * ITENS_POR_PAGINA;
+                return dadosFiltrados.slice(inicio, inicio + ITENS_POR_PAGINA);
+            }, [dadosFiltrados, paginaAtual]);
+
+            const inicioExibicao = dadosFiltrados.length === 0 ? 0 : (paginaAtual - 1) * ITENS_POR_PAGINA + 1;
+            const fimExibicao = Math.min(paginaAtual * ITENS_POR_PAGINA, dadosFiltrados.length);
+
+            // Lógica de Seleção (o "selecionar todos" age sobre a página atual, que já é o lote de impressão)
+            const idsDaPagina = dadosPaginados.map(i => i.id);
+            const todosDaPaginaSelecionados = idsDaPagina.length > 0 && idsDaPagina.every(id => selecionados.includes(id));
+
+            const toggleItem = (id) => {
+                setSelecionados(prev =>
+                    prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+                );
+            };
+
+            const toggleTodos = () => {
+                if (todosDaPaginaSelecionados) {
+                    setSelecionados(prev => prev.filter(id => !idsDaPagina.includes(id)));
+                } else {
+                    setSelecionados(prev => Array.from(new Set([...prev, ...idsDaPagina])));
+                }
+            };
+
+            // Envio para a Impressora
+            const handleImprimir = async () => {
+                if (selecionados.length === 0) return alert('Selecione ao menos um registro.');
+                if (selecionados.length > 50) return alert('Selecione no máximo 50 etiquetas por lote para não sobrecarregar a memória da impressora.');
+
+                setLoading(true);
+                try {
+                    const res = await chamarApi('/api/imprimir', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ idsParaImprimir: selecionados })
+                    });
+                    const json = await res.json();
+
+                    if (json.success) {
+                        // A Vercel só enfileira — o agente local na rede da impressora é quem imprime de fato
+                        setDados(prev => prev.map(item =>
+                            selecionados.includes(item.id) ? { ...item, status: 'Na fila' } : item
+                        ));
+                        setSelecionados([]);
+                        alert('Lote enviado para a fila de impressão! O agente local vai imprimir em breve.');
+                    } else {
+                        alert(json.error);
+                    }
+                } catch (error) {
+                    alert('Erro ao comunicar com o servidor de impressão.');
+                }
+                setLoading(false);
+            };
+
+            // Contadores
+            const totalPendentes = dados.filter(d => d.status === 'Pendente').length;
+            const totalNaFila = dados.filter(d => d.status === 'Na fila').length;
+            const totalImpressos = dados.filter(d => d.status === 'Impresso').length;
+
+            return (
+                <div className="max-w-7xl mx-auto">
+                    {/* Cabeçalho */}
+                    <div className="flex justify-between items-center mb-6 bg-white p-6 rounded-lg shadow">
+                        <div>
+                            <h1 className="text-2xl font-bold text-gray-800">Painel de Impressão de Identificação</h1>
+                            <p className="text-gray-500 text-sm mt-1">Zebra TLP/GC Series - Porta 9100</p>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <label className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded cursor-pointer font-medium transition">
+                                {loading ? 'Carregando...' : 'Carregar Planilha (.xlsx)'}
+                                <input type="file" accept=".xlsx" className="hidden" onChange={handleUpload} disabled={loading} />
+                            </label>
+                            <button
+                                onClick={onLogout}
+                                className="text-sm font-medium text-gray-400 hover:text-red-600 transition"
+                            >Sair</button>
+                        </div>
+                    </div>
+
+                    {/* Barra de Filtros e Resumo */}
+                    <div className="flex flex-wrap gap-3 items-center justify-between mb-3 bg-white p-3 rounded-lg shadow-sm border">
+                        <div className="flex flex-wrap gap-3">
+                            <input
+                                type="text"
+                                placeholder="Buscar por Nome, Matrícula ou CPF..."
+                                className="border p-2 rounded w-72 shadow-sm"
+                                value={busca}
+                                onChange={e => setBusca(e.target.value)}
+                            />
+                            <select
+                                className="border p-2 rounded shadow-sm bg-white"
+                                value={filtroStatus}
+                                onChange={e => setFiltroStatus(e.target.value)}
+                            >
+                                <option value="Todos">Status: Todos</option>
+                                <option value="Pendente">Status: Pendentes</option>
+                                <option value="Na fila">Status: Na fila</option>
+                                <option value="Impresso">Status: Impressos</option>
+                            </select>
+                            <select
+                                className="border p-2 rounded shadow-sm bg-white"
+                                value={filtroMes}
+                                onChange={e => setFiltroMes(e.target.value)}
+                            >
+                                <option value="Todos">Mês: Todos</option>
+                                {MESES.map(m => <option key={m.valor} value={m.valor}>{m.nome}</option>)}
+                            </select>
+                            {filtrosAtivos && (
+                                <button
+                                    onClick={limparFiltros}
+                                    className="px-3 py-2 rounded text-sm font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 transition"
+                                >
+                                    ✕ Limpar filtros
+                                </button>
+                            )}
+                        </div>
+                        <div className="text-sm font-semibold text-gray-600 bg-gray-50 px-4 py-2 rounded shadow-sm">
+                            Total: {dados.length} | Pendentes: <span className="text-red-500">{totalPendentes}</span> | Na fila: <span className="text-yellow-600">{totalNaFila}</span> | Impressos: <span className="text-green-600">{totalImpressos}</span>
+                        </div>
+                    </div>
+
+                    {/* Filtros rápidos: Ano(s) de admissão (múltipla escolha) e Letra inicial do nome */}
+                    <div className="flex flex-wrap items-start gap-4 mb-4 bg-white p-3 rounded-lg shadow-sm border">
+                        <div className="flex flex-wrap items-center gap-1">
+                            <span className="text-xs font-semibold text-gray-400 mr-1">ANO:</span>
+                            {anosDisponiveis.length === 0 ? (
+                                <span className="text-xs text-gray-400 italic">sem dados</span>
+                            ) : anosDisponiveis.map(ano => (
+                                <button
+                                    key={ano}
+                                    onClick={() => toggleAno(ano)}
+                                    title="Clique para marcar/desmarcar (pode selecionar vários anos)"
+                                    className={`px-2.5 h-7 rounded text-xs font-semibold transition ${filtroAnos.includes(ano) ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'}`}
+                                >{ano}</button>
+                            ))}
+                        </div>
+
+                        <div className="w-px self-stretch bg-gray-200 hidden sm:block" />
+
+                        <div className="flex flex-wrap items-center gap-1">
+                            <span className="text-xs font-semibold text-gray-400 mr-1">LETRA:</span>
+                            <button
+                                onClick={() => setFiltroLetra('Todos')}
+                                className={`px-3 h-7 rounded text-xs font-semibold transition ${filtroLetra === 'Todos' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'}`}
+                            >Todos</button>
+                            {LETRAS.map(letra => {
+                                const desabilitada = !letrasDisponiveis.has(letra);
+                                return (
+                                    <button
+                                        key={letra}
+                                        onClick={() => setFiltroLetra(letra)}
+                                        disabled={desabilitada}
+                                        title={desabilitada ? 'Sem registros com esta letra no filtro atual' : undefined}
+                                        className={`min-w-[28px] h-7 px-1 rounded text-xs font-semibold transition ${
+                                            filtroLetra === letra
+                                                ? 'bg-blue-600 text-white'
+                                                : desabilitada
+                                                    ? 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                                                    : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                                        }`}
+                                    >{letra}</button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Tabela de Dados */}
+                    <div className="bg-white rounded-lg shadow overflow-hidden mb-20 border">
+                        <table className="min-w-full text-left text-sm">
+                            <thead className="bg-gray-50 border-b">
+                                <tr>
+                                    <th className="p-4 w-12">
+                                        <input
+                                            type="checkbox"
+                                            className="w-4 h-4 cursor-pointer"
+                                            checked={todosDaPaginaSelecionados}
+                                            onChange={toggleTodos}
+                                            title="Selecionar todos desta página"
+                                        />
+                                    </th>
+                                    <th className="p-4 font-semibold">Nome do Servidor</th>
+                                    <th className="p-4 font-semibold">Matrícula</th>
+                                    <th className="p-4 font-semibold">CPF</th>
+                                    <th className="p-4 font-semibold">Admissão</th>
+                                    <th className="p-4 font-semibold">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {dadosPaginados.length > 0 ? dadosPaginados.map((item) => (
+                                    <tr key={item.id} className="border-b hover:bg-gray-50 transition">
+                                        <td className="p-4">
+                                            <input 
+                                                type="checkbox" 
+                                                className="w-4 h-4 cursor-pointer"
+                                                checked={selecionados.includes(item.id)}
+                                                onChange={() => toggleItem(item.id)}
+                                            />
+                                        </td>
+                                        <td className="p-4 font-medium">{item.nome}</td>
+                                        <td className="p-4">{item.matricula}</td>
+                                        <td className="p-4">{item.cpf}</td>
+                                        <td className="p-4">{item.dataAdmissao}</td>
+                                        <td className="p-4">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                item.status === 'Impresso' ? 'bg-green-100 text-green-700' :
+                                                item.status === 'Na fila' ? 'bg-yellow-100 text-yellow-700' :
+                                                'bg-red-100 text-red-700'
+                                            }`}>
+                                                {item.status}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                )) : (
+                                    <tr>
+                                        <td colSpan="6" className="p-8 text-center text-gray-500">
+                                            Nenhum registro encontrado. Carregue uma planilha ou altere os filtros.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                        {dadosFiltrados.length > 0 && (
+                            <div className="flex flex-wrap gap-3 items-center justify-between px-4 py-3 bg-gray-50 border-t text-sm text-gray-600">
+                                <span>
+                                    Exibindo <strong>{inicioExibicao}</strong>–<strong>{fimExibicao}</strong> de <strong>{dadosFiltrados.length}</strong> registros
+                                </span>
+                                <Paginacao paginaAtual={paginaAtual} totalPaginas={totalPaginas} onChange={setPaginaAtual} />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Rodapé Fixo de Ação */}
+                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 shadow-lg flex justify-between items-center px-10">
+                        <div className="text-gray-700 font-medium">
+                            <span className="text-blue-600 text-xl font-bold">{selecionados.length}</span> etiquetas selecionadas.
+                        </div>
+                        <button 
+                            onClick={handleImprimir}
+                            disabled={loading || selecionados.length === 0}
+                            className={`px-8 py-3 rounded text-white font-bold shadow transition ${selecionados.length > 0 && selecionados.length <= 50 ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed'}`}
+                        >
+                            {loading ? 'Processando...' : `🖨️ IMPRIMIR LOTE SELECIONADO`}
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        function ModalTrocarSenha({ token, onFechar }) {
+            const [novaSenha, setNovaSenha] = useState('');
+            const [confirmar, setConfirmar] = useState('');
+            const [erro, setErro] = useState('');
+            const [sucesso, setSucesso] = useState(false);
+            const [salvando, setSalvando] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (novaSenha.length < 8) { setErro('Mínimo 8 caracteres.'); return; }
+                if (novaSenha !== confirmar) { setErro('As senhas não coincidem.'); return; }
+                setSalvando(true); setErro('');
+                try {
+                    const res = await fetch('/api/perfil/trocar-senha', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ novaSenha })
+                    });
+                    const json = await res.json();
+                    if (json.success) { setSucesso(true); setTimeout(onFechar, 1800); }
+                    else setErro(json.error || 'Erro ao trocar senha.');
+                } catch { setErro('Erro ao conectar com o servidor.'); }
+                setSalvando(false);
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={e => e.target === e.currentTarget && onFechar()}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+                        <h2 className="text-lg font-bold text-gray-800 mb-4">Trocar Senha</h2>
+                        {sucesso ? (
+                            <div className="text-center py-6">
+                                <div className="text-green-500 text-4xl mb-3">✓</div>
+                                <p className="text-green-700 font-semibold">Senha alterada com sucesso!</p>
+                            </div>
+                        ) : (
+                            <form onSubmit={handleSubmit}>
+                                {erro && <div className="bg-red-50 text-red-600 text-sm p-3 rounded mb-4">{erro}</div>}
+                                <label className="block text-sm font-medium text-gray-600 mb-1">Nova senha</label>
+                                <input type="password" required minLength={8} autoFocus className="border p-2 rounded w-full mb-3 focus:outline-none focus:ring-2 focus:ring-blue-400" value={novaSenha} onChange={e => setNovaSenha(e.target.value)} />
+                                <label className="block text-sm font-medium text-gray-600 mb-1">Confirmar nova senha</label>
+                                <input type="password" required minLength={8} className="border p-2 rounded w-full mb-5 focus:outline-none focus:ring-2 focus:ring-blue-400" value={confirmar} onChange={e => setConfirmar(e.target.value)} />
+                                <div className="flex gap-2 justify-end">
+                                    <button type="button" onClick={onFechar} className="px-4 py-2 rounded text-sm text-gray-600 hover:bg-gray-100 transition font-medium">Cancelar</button>
+                                    <button type="submit" disabled={salvando} className="px-4 py-2 rounded text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold transition disabled:opacity-50">
+                                        {salvando ? 'Salvando...' : 'Salvar'}
+                                    </button>
+                                </div>
+                            </form>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function NavBar({ perfil, secao, setSecao, onLogout, onTrocarSenha }) {
+            return (
+                <div className="bg-white border-b shadow-sm px-6 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-6">
+                        <span className="font-bold text-gray-800 text-sm">GAO · Etiquetas</span>
+                        <nav className="flex gap-1">
+                            <button onClick={() => setSecao('dashboard')} className={`px-3 py-1.5 rounded text-sm font-medium transition ${secao === 'dashboard' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Etiquetas</button>
+                            {perfil.role === 'admin' && <>
+                                <button onClick={() => setSecao('usuarios')} className={`px-3 py-1.5 rounded text-sm font-medium transition ${secao === 'usuarios' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Usuários</button>
+                                <button onClick={() => setSecao('logs')} className={`px-3 py-1.5 rounded text-sm font-medium transition ${secao === 'logs' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Logs</button>
+                            </>}
+                        </nav>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <span className="text-xs font-semibold px-2 py-1 rounded bg-purple-100 text-purple-700">{perfil.role === 'admin' ? '★ Admin' : 'Usuário'}</span>
+                        <button onClick={onTrocarSenha} className="text-sm text-gray-400 hover:text-blue-600 transition font-medium">Trocar Senha</button>
+                        <button onClick={onLogout} className="text-sm text-gray-400 hover:text-red-600 transition font-medium">Sair</button>
+                    </div>
+                </div>
+            );
+        }
+
+        function TrocarSenha({ token, onTrocou }) {
+            const [novaSenha, setNovaSenha] = useState('');
+            const [confirmar, setConfirmar] = useState('');
+            const [erro, setErro] = useState('');
+            const [salvando, setSalvando] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (novaSenha.length < 8) { setErro('Mínimo 8 caracteres.'); return; }
+                if (novaSenha !== confirmar) { setErro('As senhas não coincidem.'); return; }
+                setSalvando(true);
+                try {
+                    const res = await fetch('/api/perfil/trocar-senha', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ novaSenha })
+                    });
+                    const json = await res.json();
+                    if (json.success) onTrocou();
+                    else setErro(json.error || 'Erro ao trocar senha.');
+                } catch { setErro('Erro ao conectar com o servidor.'); }
+                setSalvando(false);
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-gray-100">
+                    <form onSubmit={handleSubmit} className="bg-white p-8 rounded-lg shadow w-full max-w-sm">
+                        <h1 className="text-xl font-bold text-gray-800 mb-1">Primeiro acesso</h1>
+                        <p className="text-gray-500 text-sm mb-6">Por segurança, defina uma nova senha antes de continuar.</p>
+                        {erro && <div className="bg-red-50 text-red-600 text-sm p-2 rounded mb-4">{erro}</div>}
+                        <label className="block text-sm font-medium text-gray-600 mb-1">Nova senha</label>
+                        <input type="password" required minLength={8} autoFocus className="border p-2 rounded w-full mb-4" value={novaSenha} onChange={e => setNovaSenha(e.target.value)} />
+                        <label className="block text-sm font-medium text-gray-600 mb-1">Confirmar senha</label>
+                        <input type="password" required minLength={8} className="border p-2 rounded w-full mb-6" value={confirmar} onChange={e => setConfirmar(e.target.value)} />
+                        <button type="submit" disabled={salvando} className="bg-blue-600 hover:bg-blue-700 text-white w-full py-2 rounded font-medium transition disabled:opacity-50">
+                            {salvando ? 'Salvando...' : 'Definir senha e entrar'}
+                        </button>
+                    </form>
+                </div>
+            );
+        }
+
+        function GerenciarUsuarios({ token }) {
+            const [usuarios, setUsuarios] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [criarEmail, setCriarEmail] = useState('');
+            const [criando, setCriando] = useState(false);
+            const [mensagem, setMensagem] = useState(null);
+
+            const api = (url, opts = {}) => fetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
+
+            useEffect(() => {
+                api('/api/usuarios/listar').then(r => r.json()).then(d => { setUsuarios(d.usuarios || []); setLoading(false); });
+            }, []);
+
+            const criarUsuario = async (e) => {
+                e.preventDefault();
+                setCriando(true); setMensagem(null);
+                const res = await api('/api/usuarios/criar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: criarEmail }) });
+                const json = await res.json();
+                if (json.success) {
+                    setMensagem({ tipo: 'sucesso', texto: `Usuário criado! Senha temporária: ${json.senhaTemporaria}` });
+                    setCriarEmail('');
+                    setUsuarios(prev => [...prev, json.usuario]);
+                } else {
+                    setMensagem({ tipo: 'erro', texto: json.error || 'Erro ao criar usuário.' });
+                }
+                setCriando(false);
+            };
+
+            return (
+                <div className="max-w-4xl mx-auto p-6">
+                    <h2 className="text-xl font-bold text-gray-800 mb-6">Gerenciar Usuários</h2>
+                    <form onSubmit={criarUsuario} className="bg-white p-6 rounded-lg shadow mb-6 border">
+                        <h3 className="font-semibold text-gray-700 mb-3">Criar novo usuário</h3>
+                        {mensagem && (
+                            <div className={`text-sm p-3 rounded mb-3 font-medium ${mensagem.tipo === 'sucesso' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                                {mensagem.texto}
+                            </div>
+                        )}
+                        <div className="flex gap-3">
+                            <input type="email" required placeholder="email@orgao.gov.br" className="border p-2 rounded flex-1 shadow-sm" value={criarEmail} onChange={e => setCriarEmail(e.target.value)} />
+                            <button type="submit" disabled={criando} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded font-medium transition disabled:opacity-50">
+                                {criando ? 'Criando...' : '+ Criar'}
+                            </button>
+                        </div>
+                    </form>
+                    <div className="bg-white rounded-lg shadow overflow-hidden border">
+                        <table className="min-w-full text-sm">
+                            <thead className="bg-gray-50 border-b">
+                                <tr>
+                                    <th className="p-4 text-left font-semibold">E-mail</th>
+                                    <th className="p-4 text-left font-semibold">Perfil</th>
+                                    <th className="p-4 text-left font-semibold">1° acesso</th>
+                                    <th className="p-4 text-left font-semibold">Criado em</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {loading ? (
+                                    <tr><td colSpan="4" className="p-8 text-center text-gray-400">Carregando...</td></tr>
+                                ) : usuarios.map(u => (
+                                    <tr key={u.id} className="border-b hover:bg-gray-50">
+                                        <td className="p-4 font-medium">{u.email}</td>
+                                        <td className="p-4">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}`}>
+                                                {u.role === 'admin' ? '★ Admin' : 'Usuário'}
+                                            </span>
+                                        </td>
+                                        <td className="p-4">
+                                            <span className={`text-xs font-semibold ${u.force_password_change ? 'text-yellow-600' : 'text-green-600'}`}>
+                                                {u.force_password_change ? 'Pendente' : 'Concluído'}
+                                            </span>
+                                        </td>
+                                        <td className="p-4 text-gray-500">{new Date(u.created_at).toLocaleDateString('pt-BR')}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        function Logs({ token }) {
+            const [logs, setLogs] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                fetch('/api/logs', { headers: { Authorization: `Bearer ${token}` } })
+                    .then(r => r.json())
+                    .then(data => { setLogs(Array.isArray(data) ? data : []); setLoading(false); });
+            }, []);
+
+            const BADGE = { login: 'bg-blue-100 text-blue-700', upload_planilha: 'bg-yellow-100 text-yellow-700', impressao_lote: 'bg-green-100 text-green-700', criar_usuario: 'bg-purple-100 text-purple-700', trocar_senha: 'bg-orange-100 text-orange-700', marcar_pendente: 'bg-red-100 text-red-700' };
+            const LABEL = { login: 'Login', upload_planilha: 'Upload planilha', impressao_lote: 'Impressão lote', criar_usuario: 'Criar usuário', trocar_senha: 'Trocar senha', marcar_pendente: 'Marcar pendente' };
+
+            return (
+                <div className="max-w-7xl mx-auto p-6">
+                    <h2 className="text-xl font-bold text-gray-800 mb-6">Logs do Sistema</h2>
+                    <div className="bg-white rounded-lg shadow overflow-hidden border">
+                        <table className="min-w-full text-sm">
+                            <thead className="bg-gray-50 border-b">
+                                <tr>
+                                    <th className="p-4 text-left font-semibold">Data/Hora</th>
+                                    <th className="p-4 text-left font-semibold">Usuário</th>
+                                    <th className="p-4 text-left font-semibold">Ação</th>
+                                    <th className="p-4 text-left font-semibold">Detalhes</th>
+                                    <th className="p-4 text-left font-semibold">IP</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {loading ? (
+                                    <tr><td colSpan="5" className="p-8 text-center text-gray-400">Carregando...</td></tr>
+                                ) : logs.length === 0 ? (
+                                    <tr><td colSpan="5" className="p-8 text-center text-gray-400">Nenhum log registrado ainda.</td></tr>
+                                ) : logs.map(log => (
+                                    <tr key={log.id} className="border-b hover:bg-gray-50">
+                                        <td className="p-4 text-gray-500 whitespace-nowrap">{new Date(log.criado_em).toLocaleString('pt-BR')}</td>
+                                        <td className="p-4">{log.user_email || '—'}</td>
+                                        <td className="p-4">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold ${BADGE[log.acao] || 'bg-gray-100 text-gray-600'}`}>
+                                                {LABEL[log.acao] || log.acao}
+                                            </span>
+                                        </td>
+                                        <td className="p-4 text-gray-500 max-w-xs truncate">
+                                            {log.detalhes && Object.keys(log.detalhes).length > 0
+                                                ? Object.entries(log.detalhes).map(([k, v]) => `${k}: ${v}`).join(' | ')
+                                                : '—'}
+                                        </td>
+                                        <td className="p-4 text-gray-400 text-xs font-mono">{log.ip || '—'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        function App() {
+            const [token, setToken] = useState(() => sessionStorage.getItem('token') || null);
+            const [perfil, setPerfil] = useState(null);
+            const [secao, setSecao] = useState('dashboard');
+            const [mostrarTrocarSenha, setMostrarTrocarSenha] = useState(false);
+
+            const handleLogin = (novoToken) => {
+                sessionStorage.setItem('token', novoToken);
+                setToken(novoToken);
+            };
+
+            const handleLogout = () => {
+                sessionStorage.removeItem('token');
+                setToken(null);
+                setPerfil(null);
+            };
+
+            useEffect(() => {
+                if (!token) { setPerfil(null); return; }
+                fetch('/api/perfil/meu', { headers: { Authorization: `Bearer ${token}` } })
+                    .then(r => { if (r.status === 401) { handleLogout(); return null; } return r.json(); })
+                    .then(data => { if (data) setPerfil(data); })
+                    .catch(() => handleLogout());
+            }, [token]);
+
+            if (!token) return <Login onLogin={handleLogin} />;
+            if (!perfil) return (
+                <div className="min-h-screen flex items-center justify-center bg-gray-100">
+                    <p className="text-gray-400 text-sm">Carregando...</p>
+                </div>
+            );
+            if (perfil.force_password_change) return (
+                <TrocarSenha token={token} onTrocou={() => setPerfil({ ...perfil, force_password_change: false })} />
+            );
+
+            return (
+                <div className="min-h-screen bg-gray-100">
+                    <NavBar perfil={perfil} secao={secao} setSecao={setSecao} onLogout={handleLogout} onTrocarSenha={() => setMostrarTrocarSenha(true)} />
+                    {mostrarTrocarSenha && <ModalTrocarSenha token={token} onFechar={() => setMostrarTrocarSenha(false)} />}
+                    {secao === 'dashboard' && <Dashboard token={token} onLogout={handleLogout} />}
+                    {secao === 'usuarios' && perfil.role === 'admin' && <GerenciarUsuarios token={token} />}
+                    {secao === 'logs' && perfil.role === 'admin' && <Logs token={token} />}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
