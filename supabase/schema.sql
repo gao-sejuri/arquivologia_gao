@@ -14,7 +14,7 @@ create table if not exists etiquetas (
 create table if not exists fila_impressao (
   id bigint generated always as identity primary key,
   etiqueta_id bigint references etiquetas(id) not null,
-  status text not null default 'pendente', -- 'pendente' | 'enviado' | 'erro'
+  status text not null default 'pendente', -- 'pendente' | 'processando' | 'enviado' | 'erro'
   erro text,
   criado_em timestamptz not null default now(),
   processado_em timestamptz

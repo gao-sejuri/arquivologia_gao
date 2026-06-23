@@ -50,21 +50,26 @@ module.exports = async function handler(req, res) {
         const paraInserir = [];
         const paraAtualizar = [];
 
-        // Deduplica o Excel antes de processar: CPF ou matrícula como chave, última linha vence
+        // Deduplica o Excel antes de processar: CPF ou matrícula como chave, última linha vence.
+        // As chaves recebem prefixo (c:/m:/n:) para que um CPF "123" e uma matrícula "123" não
+        // colidam no mesmo Map e façam uma das pessoas sumir da importação.
         const vistoNoPlanilha = new Map();
         rawData.forEach(row => {
             const cpfKey = normalizarCpf(row['CPF'] || '');
             const matKey = normalizarMatricula(row['Matrícula'] || '');
-            const chave = cpfKey || matKey || (row['Nome'] || '').trim().toLowerCase();
-            if (chave) vistoNoPlanilha.set(chave, row);
+            const chave = cpfKey ? `c:${cpfKey}` : matKey ? `m:${matKey}` : `n:${(row['Nome'] || '').trim().toLowerCase()}`;
+            if (chave !== 'n:') vistoNoPlanilha.set(chave, row);
         });
         const rowsDedupados = Array.from(vistoNoPlanilha.values());
 
+        // Remove caracteres de controle e espaços nas pontas antes de persistir no banco
+        const sanitizar = (v) => String(v ?? '').replace(/[\u0000-\u001F\u007F]/g, '').trim();
+
         rowsDedupados.forEach(row => {
-            const nome = row['Nome'] || '';
-            const matricula = row['Matrícula'] || '';
-            const cpf = row['CPF'] || '';
-            const dataAdmissaoIso = parseDataBRParaISO((row['Data de admissão cargo atual'] || '').split(' ')[0]);
+            const nome = sanitizar(row['Nome']);
+            const matricula = sanitizar(row['Matrícula']);
+            const cpf = sanitizar(row['CPF']);
+            const dataAdmissaoIso = parseDataBRParaISO(sanitizar(row['Data de admissão cargo atual']).split(' ')[0]);
 
             const existente = porCpf.get(normalizarCpf(cpf)) || porMatricula.get(normalizarMatricula(matricula));
             const statusFinal = (existente && existente.status !== 'Pendente') ? existente.status : 'Pendente';

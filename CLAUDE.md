@@ -110,7 +110,7 @@ Referencias: OWASP Top 10, LGPD Art. 46, NBR ISO/IEC 27001.
 - Acessibilidade: WCAG 2.1 AA (aria-labels, contraste 4.5:1, navegacao por teclado)
 - Feedback imediato: toda acao async tem estado de loading visivel
 - Erros: mensagens em portugues, sem expor detalhes tecnicos ao usuario
-- Impressao em lote: maximo 50 por vez (ja implementado, manter)
+- Impressao em lote: maximo 20 por vez (limite de memoria da impressora; ja implementado, manter)
 - Mobile: layout responsivo (tabela com scroll horizontal em telas pequenas)
 - Nenhum `alert()` ou `confirm()` nativo — substituir por modais React
 

@@ -38,6 +38,47 @@
             return { ano: isNaN(ano) ? null : ano, mes: isNaN(mes) ? null : mes };
         };
 
+        // Mostra apenas os 3 últimos dígitos do CPF (LGPD Art. 46 — mascaramento na exibição).
+        // A busca continua usando o CPF completo, que permanece nos dados; só a tela é mascarada.
+        const mascararCpf = (cpf) => {
+            const d = String(cpf || '').replace(/\D/g, '');
+            if (d.length !== 11) return cpf ? '•••.•••.•••-••' : '';
+            return `•••.•••.••${d[8]}-${d[9]}${d[10]}`;
+        };
+
+        // Notificação flutuante (substitui alert() nativo)
+        function Toast({ aviso, onFechar }) {
+            useEffect(() => {
+                if (!aviso) return;
+                const t = setTimeout(onFechar, 4000);
+                return () => clearTimeout(t);
+            }, [aviso]);
+            if (!aviso) return null;
+            const cor = aviso.tipo === 'erro' ? 'bg-red-600' : 'bg-green-600';
+            return (
+                <div className={`fixed top-4 right-4 z-[60] ${cor} text-white px-4 py-3 rounded shadow-lg max-w-sm text-sm font-medium`} role="status" aria-live="polite">
+                    {aviso.texto}
+                </div>
+            );
+        }
+
+        // Confirmação modal (substitui window.confirm() nativo)
+        function ModalConfirmacao({ aberto, titulo, mensagem, textoConfirmar, onConfirmar, onCancelar }) {
+            if (!aberto) return null;
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={e => e.target === e.currentTarget && onCancelar()}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+                        <h2 className="text-lg font-bold text-gray-800 mb-3">{titulo}</h2>
+                        <div className="text-sm text-gray-600 mb-5 whitespace-pre-line max-h-60 overflow-auto">{mensagem}</div>
+                        <div className="flex gap-2 justify-end">
+                            <button onClick={onCancelar} className="px-4 py-2 rounded text-sm text-gray-600 hover:bg-gray-100 font-medium transition">Cancelar</button>
+                            <button onClick={onConfirmar} className="px-4 py-2 rounded text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold transition">{textoConfirmar || 'Confirmar'}</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         function Paginacao({ paginaAtual, totalPaginas, onChange }) {
             if (totalPaginas <= 1) return null;
             const janela = 2;
@@ -137,7 +178,7 @@
             );
         }
 
-        function Dashboard({ token, onLogout, perfil }) {
+        function Dashboard({ chamarApi, perfil }) {
             const [dados, setDados] = useState([]);
             const [selecionados, setSelecionados] = useState([]);
             const [confirmandoReset, setConfirmandoReset] = useState(false);
@@ -151,19 +192,11 @@
             const [filtroLetra, setFiltroLetra] = useState('Todos');
             const [paginaAtual, setPaginaAtual] = useState(1);
             const [loading, setLoading] = useState(false);
+            const [aviso, setAviso] = useState(null);
+            const [confirmReimprimir, setConfirmReimprimir] = useState(null);
 
-            // Toda chamada à nossa API leva o token do Supabase Auth; em caso de 401, força novo login
-            const chamarApi = async (url, opcoes = {}) => {
-                const res = await fetch(url, {
-                    ...opcoes,
-                    headers: { ...(opcoes.headers || {}), Authorization: `Bearer ${token}` }
-                });
-                if (res.status === 401) {
-                    onLogout();
-                    throw new Error('Sessão expirada. Faça login novamente.');
-                }
-                return res;
-            };
+            // chamarApi (com tratamento de 401) vem do App; um 401 dispara logout em qualquer chamada.
+            const ehSessaoExpirada = (e) => e && e.message && e.message.includes('Sessão');
 
             // Carrega os dados salvos no Supabase ao abrir o programa
             useEffect(() => {
@@ -197,34 +230,45 @@
                         setDados(json.dados);
                         setSelecionados([]);
                         limparFiltros();
+                        setAviso({ tipo: 'sucesso', texto: 'Planilha carregada e dados atualizados com sucesso!' });
 
-                        // A planilha pode trazer gente que já tinha sido impressa (ou estava na fila) antes, casado por CPF/Matrícula
+                        // A planilha pode trazer gente que já tinha sido impressa (ou estava na fila) antes,
+                        // casado por CPF/Matrícula — pergunta via modal se deseja reimprimir.
                         if (json.jaImpressos && json.jaImpressos.length > 0) {
-                            const nomes = json.jaImpressos.map(p => p.nome).join('\n- ');
-                            const reimprimir = window.confirm(
-                                `${json.jaImpressos.length} pessoa(s) desta planilha já constavam como IMPRESSAS ou NA FILA anteriormente:\n\n- ${nomes}\n\nDeseja marcá-las como Pendente novamente para reimprimir as etiquetas?`
-                            );
-                            if (reimprimir) {
-                                const idsParaReimprimir = json.jaImpressos.map(p => p.id);
-                                const res2 = await chamarApi('/api/marcar-pendente', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ ids: idsParaReimprimir })
-                                });
-                                const json2 = await res2.json();
-                                if (json2.success) setDados(json2.dados);
-                            }
+                            setConfirmReimprimir({
+                                total: json.jaImpressos.length,
+                                nomes: json.jaImpressos.map(p => p.nome),
+                                ids: json.jaImpressos.map(p => p.id)
+                            });
                         }
-
-                        alert('Planilha carregada e cofre atualizado com sucesso!');
                     } else {
-                        alert(json.error);
+                        setAviso({ tipo: 'erro', texto: json.error || 'Não foi possível processar a planilha.' });
                     }
                 } catch (error) {
-                    alert('Erro ao enviar arquivo.');
+                    if (!ehSessaoExpirada(error)) setAviso({ tipo: 'erro', texto: 'Erro ao enviar arquivo.' });
                 }
                 setLoading(false);
                 e.target.value = null; // Reseta o input
+            };
+
+            // Confirmação (via modal) de reimpressão de quem já constava impresso/na fila
+            const confirmarReimpressao = async () => {
+                if (!confirmReimprimir) return;
+                try {
+                    const res = await chamarApi('/api/marcar-pendente', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ids: confirmReimprimir.ids })
+                    });
+                    const json = await res.json();
+                    if (json.success) {
+                        setDados(json.dados);
+                        setAviso({ tipo: 'sucesso', texto: 'Registros marcados como Pendente para reimpressão.' });
+                    }
+                } catch (error) {
+                    if (!ehSessaoExpirada(error)) setAviso({ tipo: 'erro', texto: 'Erro ao marcar para reimpressão.' });
+                }
+                setConfirmReimprimir(null);
             };
 
             // Filtro-base: texto, status e mês (dimensões compartilhadas pelos recortes de Ano e Letra abaixo)
@@ -293,7 +337,7 @@
                 setPaginaAtual(1);
             }, [busca, filtroStatus, filtroAnos, filtroMes, filtroLetra]);
 
-            // Paginação (50 por página)
+            // Paginação (20 por página)
             const totalPaginas = Math.max(1, Math.ceil(dadosFiltrados.length / ITENS_POR_PAGINA));
 
             useEffect(() => {
@@ -328,8 +372,8 @@
 
             // Envio para a Impressora
             const handleImprimir = async () => {
-                if (selecionados.length === 0) return alert('Selecione ao menos um registro.');
-                if (selecionados.length > 20) return alert('Selecione no máximo 20 etiquetas por lote para não sobrecarregar a memória da impressora.');
+                if (selecionados.length === 0) return setAviso({ tipo: 'erro', texto: 'Selecione ao menos um registro.' });
+                if (selecionados.length > 20) return setAviso({ tipo: 'erro', texto: 'Selecione no máximo 20 etiquetas por lote para não sobrecarregar a memória da impressora.' });
 
                 setLoading(true);
                 try {
@@ -346,12 +390,12 @@
                             selecionados.includes(item.id) ? { ...item, status: 'Na fila' } : item
                         ));
                         setSelecionados([]);
-                        alert('Lote enviado para a fila de impressão! O agente local vai imprimir em breve.');
+                        setAviso({ tipo: 'sucesso', texto: 'Lote enviado para a fila! O agente local vai imprimir em breve.' });
                     } else {
-                        alert(json.error);
+                        setAviso({ tipo: 'erro', texto: json.error || 'Não foi possível enfileirar a impressão.' });
                     }
                 } catch (error) {
-                    alert('Erro ao comunicar com o servidor de impressão.');
+                    if (!ehSessaoExpirada(error)) setAviso({ tipo: 'erro', texto: 'Erro ao comunicar com o servidor de impressão.' });
                 }
                 setLoading(false);
             };
@@ -359,13 +403,12 @@
             const handleLimparDados = async () => {
                 setLimpando(true);
                 try {
-                    const res = await fetch('/api/limpar-dados', {
-                        method: 'POST',
-                        headers: { Authorization: `Bearer ${token}` }
-                    });
+                    const res = await chamarApi('/api/limpar-dados', { method: 'POST' });
                     const json = await res.json();
-                    if (json.success) { setDados([]); setSelecionados([]); }
-                } catch {}
+                    if (json.success) { setDados([]); setSelecionados([]); setAviso({ tipo: 'sucesso', texto: 'Dados apagados.' }); }
+                } catch (error) {
+                    if (!ehSessaoExpirada(error)) setAviso({ tipo: 'erro', texto: 'Erro ao apagar os dados.' });
+                }
                 setLimpando(false);
                 setConfirmandoLimpar(false);
             };
@@ -373,13 +416,12 @@
             const handleReset = async () => {
                 setResetando(true);
                 try {
-                    const res = await fetch('/api/resetar-impressoes', {
-                        method: 'POST',
-                        headers: { Authorization: `Bearer ${token}` }
-                    });
+                    const res = await chamarApi('/api/resetar-impressoes', { method: 'POST' });
                     const json = await res.json();
-                    if (json.success) { setDados(json.dados); setSelecionados([]); }
-                } catch {}
+                    if (json.success) { setDados(json.dados); setSelecionados([]); setAviso({ tipo: 'sucesso', texto: 'Histórico zerado: todos voltaram a Pendente.' }); }
+                } catch (error) {
+                    if (!ehSessaoExpirada(error)) setAviso({ tipo: 'erro', texto: 'Erro ao resetar o histórico.' });
+                }
                 setResetando(false);
                 setConfirmandoReset(false);
             };
@@ -554,7 +596,7 @@
                                         </td>
                                         <td className="p-4 font-medium">{item.nome}</td>
                                         <td className="p-4">{item.matricula}</td>
-                                        <td className="p-4">{item.cpf}</td>
+                                        <td className="p-4" title="CPF mascarado (LGPD)">{mascararCpf(item.cpf)}</td>
                                         <td className="p-4">{item.dataAdmissao}</td>
                                         <td className="p-4">
                                             <span className={`px-2 py-1 rounded text-xs font-bold ${
@@ -590,7 +632,7 @@
                         <div className="text-gray-700 font-medium">
                             <span className="text-blue-600 text-xl font-bold">{selecionados.length}</span> etiquetas selecionadas.
                         </div>
-                        <button 
+                        <button
                             onClick={handleImprimir}
                             disabled={loading || selecionados.length === 0}
                             className={`px-8 py-3 rounded text-white font-bold shadow transition ${selecionados.length > 0 && selecionados.length <= 20 ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed'}`}
@@ -598,11 +640,23 @@
                             {loading ? 'Processando...' : `🖨️ IMPRIMIR LOTE SELECIONADO`}
                         </button>
                     </div>
+
+                    <Toast aviso={aviso} onFechar={() => setAviso(null)} />
+                    <ModalConfirmacao
+                        aberto={!!confirmReimprimir}
+                        titulo="Reimprimir etiquetas?"
+                        mensagem={confirmReimprimir
+                            ? `${confirmReimprimir.total} pessoa(s) desta planilha já constavam como IMPRESSAS ou NA FILA:\n\n- ${confirmReimprimir.nomes.join('\n- ')}\n\nMarcar como Pendente novamente para reimprimir?`
+                            : ''}
+                        textoConfirmar="Sim, reimprimir"
+                        onConfirmar={confirmarReimpressao}
+                        onCancelar={() => setConfirmReimprimir(null)}
+                    />
                 </div>
             );
         }
 
-        function ModalTrocarSenha({ token, onFechar }) {
+        function ModalTrocarSenha({ chamarApi, onFechar }) {
             const [novaSenha, setNovaSenha] = useState('');
             const [confirmar, setConfirmar] = useState('');
             const [erro, setErro] = useState('');
@@ -615,15 +669,15 @@
                 if (novaSenha !== confirmar) { setErro('As senhas não coincidem.'); return; }
                 setSalvando(true); setErro('');
                 try {
-                    const res = await fetch('/api/perfil/trocar-senha', {
+                    const res = await chamarApi('/api/perfil/trocar-senha', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ novaSenha })
                     });
                     const json = await res.json();
                     if (json.success) { setSucesso(true); setTimeout(onFechar, 1800); }
                     else setErro(json.error || 'Erro ao trocar senha.');
-                } catch { setErro('Erro ao conectar com o servidor.'); }
+                } catch (e) { if (!(e && e.message && e.message.includes('Sessão'))) setErro('Erro ao conectar com o servidor.'); }
                 setSalvando(false);
             };
 
@@ -678,7 +732,7 @@
             );
         }
 
-        function TrocarSenha({ token, onTrocou }) {
+        function TrocarSenha({ chamarApi, onTrocou }) {
             const [novaSenha, setNovaSenha] = useState('');
             const [confirmar, setConfirmar] = useState('');
             const [erro, setErro] = useState('');
@@ -690,15 +744,15 @@
                 if (novaSenha !== confirmar) { setErro('As senhas não coincidem.'); return; }
                 setSalvando(true);
                 try {
-                    const res = await fetch('/api/perfil/trocar-senha', {
+                    const res = await chamarApi('/api/perfil/trocar-senha', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ novaSenha })
                     });
                     const json = await res.json();
                     if (json.success) onTrocou();
                     else setErro(json.error || 'Erro ao trocar senha.');
-                } catch { setErro('Erro ao conectar com o servidor.'); }
+                } catch (e) { if (!(e && e.message && e.message.includes('Sessão'))) setErro('Erro ao conectar com o servidor.'); }
                 setSalvando(false);
             };
 
@@ -720,30 +774,32 @@
             );
         }
 
-        function GerenciarUsuarios({ token }) {
+        function GerenciarUsuarios({ chamarApi }) {
             const [usuarios, setUsuarios] = useState([]);
             const [loading, setLoading] = useState(true);
             const [criarEmail, setCriarEmail] = useState('');
             const [criando, setCriando] = useState(false);
             const [mensagem, setMensagem] = useState(null);
 
-            const api = (url, opts = {}) => fetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
-
             useEffect(() => {
-                api('/api/usuarios/listar').then(r => r.json()).then(d => { setUsuarios(d.usuarios || []); setLoading(false); });
+                chamarApi('/api/usuarios/listar').then(r => r.json()).then(d => { setUsuarios(d.usuarios || []); setLoading(false); }).catch(() => setLoading(false));
             }, []);
 
             const criarUsuario = async (e) => {
                 e.preventDefault();
                 setCriando(true); setMensagem(null);
-                const res = await api('/api/usuarios/criar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: criarEmail }) });
-                const json = await res.json();
-                if (json.success) {
-                    setMensagem({ tipo: 'sucesso', texto: `Usuário criado! Senha temporária: ${json.senhaTemporaria}` });
-                    setCriarEmail('');
-                    setUsuarios(prev => [...prev, json.usuario]);
-                } else {
-                    setMensagem({ tipo: 'erro', texto: json.error || 'Erro ao criar usuário.' });
+                try {
+                    const res = await chamarApi('/api/usuarios/criar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: criarEmail }) });
+                    const json = await res.json();
+                    if (json.success) {
+                        setMensagem({ tipo: 'sucesso', texto: `Usuário criado! Senha temporária: ${json.senhaTemporaria}` });
+                        setCriarEmail('');
+                        setUsuarios(prev => [...prev, json.usuario]);
+                    } else {
+                        setMensagem({ tipo: 'erro', texto: json.error || 'Erro ao criar usuário.' });
+                    }
+                } catch (e) {
+                    if (!(e && e.message && e.message.includes('Sessão'))) setMensagem({ tipo: 'erro', texto: 'Erro ao conectar com o servidor.' });
                 }
                 setCriando(false);
             };
@@ -801,18 +857,19 @@
             );
         }
 
-        function Logs({ token }) {
+        function Logs({ chamarApi }) {
             const [logs, setLogs] = useState([]);
             const [loading, setLoading] = useState(true);
 
             useEffect(() => {
-                fetch('/api/logs', { headers: { Authorization: `Bearer ${token}` } })
+                chamarApi('/api/logs')
                     .then(r => r.json())
-                    .then(data => { setLogs(Array.isArray(data) ? data : []); setLoading(false); });
+                    .then(data => { setLogs(Array.isArray(data) ? data : []); setLoading(false); })
+                    .catch(() => setLoading(false));
             }, []);
 
-            const BADGE = { login: 'bg-blue-100 text-blue-700', upload_planilha: 'bg-yellow-100 text-yellow-700', impressao_lote: 'bg-green-100 text-green-700', criar_usuario: 'bg-purple-100 text-purple-700', trocar_senha: 'bg-orange-100 text-orange-700', marcar_pendente: 'bg-red-100 text-red-700' };
-            const LABEL = { login: 'Login', upload_planilha: 'Upload planilha', impressao_lote: 'Impressão lote', criar_usuario: 'Criar usuário', trocar_senha: 'Trocar senha', marcar_pendente: 'Marcar pendente' };
+            const BADGE = { login: 'bg-blue-100 text-blue-700', login_falha: 'bg-red-100 text-red-700', upload_planilha: 'bg-yellow-100 text-yellow-700', impressao_lote: 'bg-green-100 text-green-700', criar_usuario: 'bg-purple-100 text-purple-700', trocar_senha: 'bg-orange-100 text-orange-700', marcar_pendente: 'bg-red-100 text-red-700', resetar_impressoes: 'bg-orange-100 text-orange-700', limpar_dados: 'bg-gray-200 text-gray-700' };
+            const LABEL = { login: 'Login', login_falha: 'Login falhou', upload_planilha: 'Upload planilha', impressao_lote: 'Impressão lote', criar_usuario: 'Criar usuário', trocar_senha: 'Trocar senha', marcar_pendente: 'Marcar pendente', resetar_impressoes: 'Reset histórico', limpar_dados: 'Limpar dados' };
 
             return (
                 <div className="max-w-7xl mx-auto p-6">
@@ -874,12 +931,26 @@
                 setPerfil(null);
             };
 
+            // Wrapper único de chamada à API: anexa o token e desloga automaticamente em 401
+            // (RF01.3) — usado por todas as telas para um comportamento de sessão consistente.
+            const chamarApi = async (url, opcoes = {}) => {
+                const res = await fetch(url, {
+                    ...opcoes,
+                    headers: { ...(opcoes.headers || {}), Authorization: `Bearer ${token}` }
+                });
+                if (res.status === 401) {
+                    handleLogout();
+                    throw new Error('Sessão expirada. Faça login novamente.');
+                }
+                return res;
+            };
+
             useEffect(() => {
                 if (!token) { setPerfil(null); return; }
-                fetch('/api/perfil/meu', { headers: { Authorization: `Bearer ${token}` } })
-                    .then(r => { if (r.status === 401) { handleLogout(); return null; } return r.json(); })
+                chamarApi('/api/perfil/meu')
+                    .then(r => r.json())
                     .then(data => { if (data) setPerfil(data); })
-                    .catch(() => handleLogout());
+                    .catch(() => {});
             }, [token]);
 
             if (!token) return <Login onLogin={handleLogin} />;
@@ -889,16 +960,16 @@
                 </div>
             );
             if (perfil.force_password_change) return (
-                <TrocarSenha token={token} onTrocou={() => setPerfil({ ...perfil, force_password_change: false })} />
+                <TrocarSenha chamarApi={chamarApi} onTrocou={() => setPerfil({ ...perfil, force_password_change: false })} />
             );
 
             return (
                 <div className="min-h-screen bg-gray-100">
                     <NavBar perfil={perfil} secao={secao} setSecao={setSecao} onLogout={handleLogout} onTrocarSenha={() => setMostrarTrocarSenha(true)} />
-                    {mostrarTrocarSenha && <ModalTrocarSenha token={token} onFechar={() => setMostrarTrocarSenha(false)} />}
-                    {secao === 'dashboard' && <Dashboard token={token} onLogout={handleLogout} perfil={perfil} />}
-                    {secao === 'usuarios' && perfil.role === 'admin' && <GerenciarUsuarios token={token} />}
-                    {secao === 'logs' && perfil.role === 'admin' && <Logs token={token} />}
+                    {mostrarTrocarSenha && <ModalTrocarSenha chamarApi={chamarApi} onFechar={() => setMostrarTrocarSenha(false)} />}
+                    {secao === 'dashboard' && <Dashboard chamarApi={chamarApi} perfil={perfil} />}
+                    {secao === 'usuarios' && perfil.role === 'admin' && <GerenciarUsuarios chamarApi={chamarApi} />}
+                    {secao === 'logs' && perfil.role === 'admin' && <Logs chamarApi={chamarApi} />}
                 </div>
             );
         }
