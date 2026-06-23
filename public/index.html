@@ -426,10 +426,14 @@
                 setConfirmandoReset(false);
             };
 
-            // Contadores
-            const totalPendentes = dados.filter(d => d.status === 'Pendente').length;
-            const totalNaFila = dados.filter(d => d.status === 'Na fila').length;
-            const totalImpressos = dados.filter(d => d.status === 'Impresso').length;
+            // Contadores do conjunto FILTRADO (o que o filtro trouxe = o que pode ir para impressão).
+            // Quando não há filtro ativo, dadosFiltrados === todos os dados, então mostra o total geral.
+            const totalFiltrados = dadosFiltrados.length;
+            const filtPendentes = dadosFiltrados.filter(d => d.status === 'Pendente').length;
+            const filtNaFila = dadosFiltrados.filter(d => d.status === 'Na fila').length;
+            const filtImpressos = dadosFiltrados.filter(d => d.status === 'Impresso').length;
+            // Quantos lotes de 20 para imprimir todos os pendentes do filtro (limite da impressora)
+            const lotesPendentes = Math.ceil(filtPendentes / 20);
 
             return (
                 <div className="max-w-7xl mx-auto">
@@ -513,7 +517,20 @@
                             )}
                         </div>
                         <div className="text-sm font-semibold text-gray-600 bg-gray-50 px-4 py-2 rounded shadow-sm">
-                            Total: {dados.length} | Pendentes: <span className="text-red-500">{totalPendentes}</span> | Na fila: <span className="text-yellow-600">{totalNaFila}</span> | Impressos: <span className="text-green-600">{totalImpressos}</span>
+                            {filtrosAtivos ? (
+                                <span title="Registros que o filtro atual retornou">
+                                    <span className="text-blue-700">Filtrados: {totalFiltrados}</span> de {dados.length}
+                                    {' | '}Pendentes: <span className="text-red-500">{filtPendentes}</span>
+                                    {' | '}Na fila: <span className="text-yellow-600">{filtNaFila}</span>
+                                    {' | '}Impressos: <span className="text-green-600">{filtImpressos}</span>
+                                    {filtPendentes > 0 && <span className="text-gray-400 font-normal"> · ≈ {lotesPendentes} lote(s) de 20</span>}
+                                </span>
+                            ) : (
+                                <span>
+                                    Total: {totalFiltrados} | Pendentes: <span className="text-red-500">{filtPendentes}</span> | Na fila: <span className="text-yellow-600">{filtNaFila}</span> | Impressos: <span className="text-green-600">{filtImpressos}</span>
+                                    {filtPendentes > 0 && <span className="text-gray-400 font-normal"> · ≈ {lotesPendentes} lote(s) de 20</span>}
+                                </span>
+                            )}
                         </div>
                     </div>
 
