@@ -94,7 +94,7 @@ Toda mudanca de codigo DEVE respeitar:
 
 1. **CSP**: `Content-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none'`
 2. **Token**: nunca em localStorage/sessionStorage — httpOnly cookie com SameSite=Strict
-3. **CPF**: sempre mascarado na exibicao (mostrar so 3 ultimos digitos)
+3. **CPF**: exibido por completo apenas a operadores autenticados (necessidade funcional do orgao; decisao do responsavel em 2026-06). Acesso protegido por autenticacao obrigatoria. NAO expor CPF em rotas/respostas publicas ou sem login.
 4. **Upload**: validar magic bytes do XLSX antes de processar (nao so extensao)
 5. **Rate limit**: max 5 tentativas de login por IP/15min
 6. **Audit log**: registrar toda impressao (quem, quando, quais IDs, IP)

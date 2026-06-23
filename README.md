@@ -58,8 +58,8 @@ etiquetas para impressão em uma impressora Zebra instalada na rede interna do �
 
 ## Segurança
 
-- Autenticação obrigatória em todas as rotas
-- CPF mascarado na exibição
+- Autenticação obrigatória em todas as rotas (CPF e demais dados só são visíveis após login)
+- Clique em qualquer linha da tabela para ver os dados completos do servidor
 - Validação de magic bytes no upload (garante que o arquivo é realmente XLSX)
 - Controle de acesso por perfil (admin/usuário)
 - Auditoria completa de todas as operações
