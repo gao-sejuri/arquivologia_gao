@@ -134,7 +134,9 @@ module.exports = { processarFila, recuperarPresas, configurarParaTeste };
 // Só inicia de verdade quando executado como programa (node agente-impressora.js), não quando
 // importado por um teste.
 if (require.main === module) {
-    require('dotenv').config();
+    const path = require('path');
+    // Caminho absoluto do .env: como serviço do Windows o cwd não é a pasta do projeto.
+    require('dotenv').config({ path: path.join(__dirname, '.env') });
     const { createClient } = require('@supabase/supabase-js');
     supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
         auth: { autoRefreshToken: false, persistSession: false }
