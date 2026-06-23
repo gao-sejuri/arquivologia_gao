@@ -50,7 +50,17 @@ module.exports = async function handler(req, res) {
         const paraInserir = [];
         const paraAtualizar = [];
 
+        // Deduplica o Excel antes de processar: CPF ou matrícula como chave, última linha vence
+        const vistoNoPlanilha = new Map();
         rawData.forEach(row => {
+            const cpfKey = normalizarCpf(row['CPF'] || '');
+            const matKey = normalizarMatricula(row['Matrícula'] || '');
+            const chave = cpfKey || matKey || (row['Nome'] || '').trim().toLowerCase();
+            if (chave) vistoNoPlanilha.set(chave, row);
+        });
+        const rowsDedupados = Array.from(vistoNoPlanilha.values());
+
+        rowsDedupados.forEach(row => {
             const nome = row['Nome'] || '';
             const matricula = row['Matrícula'] || '';
             const cpf = row['CPF'] || '';
