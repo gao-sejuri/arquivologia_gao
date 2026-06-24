@@ -50,3 +50,21 @@ values ('da7753a1-7205-40d2-ab52-c4f4311565f9', 'admin', false)
 on conflict (id) do update set role = 'admin', force_password_change = false;
 
 -- Sem RLS policies nas 3 tabelas: só o backend (service_role) acessa.
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Migração: dados adicionais da planilha de RH + flag de situação ativa.
+-- Idempotente (ADD COLUMN IF NOT EXISTS) — pode rodar de novo sem erro.
+--
+-- LGPD Art. 11 (dado sensível): a coluna "Situação funcional" da planilha PODE
+-- revelar saúde (ex.: "licença para tratamento de saúde"). Por minimização,
+-- NÃO armazenamos esse texto — guardamos apenas o booleano `situacao_ativo`
+-- derivado no upload. As demais colunas são dados organizacionais (não sensíveis).
+-- ─────────────────────────────────────────────────────────────────────────────
+alter table etiquetas add column if not exists unidade_organizacional text not null default '';
+alter table etiquetas add column if not exists municipio text not null default '';
+alter table etiquetas add column if not exists vinculo text not null default '';
+alter table etiquetas add column if not exists situacao_ativo boolean not null default true;
+
+create index if not exists idx_etiquetas_unidade   on etiquetas (unidade_organizacional);
+create index if not exists idx_etiquetas_municipio on etiquetas (municipio);
+create index if not exists idx_etiquetas_situacao  on etiquetas (situacao_ativo);

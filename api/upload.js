@@ -71,6 +71,20 @@ module.exports = async function handler(req, res) {
             const cpf = sanitizar(row['CPF']);
             const dataAdmissaoIso = parseDataBRParaISO(sanitizar(row['Data de admissão cargo atual']).split(' ')[0]);
 
+            // Dados organizacionais (não sensíveis) — habilitam filtros, lotes por
+            // unidade e dashboard de efetivo.
+            const unidade = sanitizar(row['Unidade Organizacional']);
+            const municipio = sanitizar(row['Município']);
+            const vinculo = sanitizar(row['Relação de vínculo']);
+
+            // LGPD Art. 11 (MINIMIZAÇÃO): "Situacao funcional" (header sem acentos) pode
+            // revelar saúde (ex.: licença médica). Derivamos só ativo/inativo e DESCARTAMOS
+            // o texto. Inativo = SAÍDA DEFINITIVA do serviço (exoneração/demissão/aposentadoria/
+            // falecimento/desligamento/rescisão). Afastamentos TEMPORÁRIOS (férias, licenças)
+            // permanecem ATIVOS — seguem sendo servidores e precisam da identificação.
+            const situacaoBruta = sanitizar(row['Situacao funcional']).toUpperCase();
+            const situacaoAtivo = !/\b(EXONERAD[OA]|DEMITID[OA]|APOSENTAD[OA]|FALECID[OA]|DESLIGAD[OA]|RESCIS|VACAN)\b/.test(situacaoBruta);
+
             const existente = porCpf.get(normalizarCpf(cpf)) || porMatricula.get(normalizarMatricula(matricula));
             const statusFinal = (existente && existente.status !== 'Pendente') ? existente.status : 'Pendente';
 
@@ -78,7 +92,10 @@ module.exports = async function handler(req, res) {
                 jaImpressos.push({ id: existente.id, nome, matricula });
             }
 
-            const registro = { nome, matricula, cpf, data_admissao: dataAdmissaoIso, status: statusFinal };
+            const registro = {
+                nome, matricula, cpf, data_admissao: dataAdmissaoIso, status: statusFinal,
+                unidade_organizacional: unidade, municipio, vinculo, situacao_ativo: situacaoAtivo,
+            };
             if (existente) {
                 paraAtualizar.push({ id: existente.id, ...registro });
             } else {
